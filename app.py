@@ -1,91 +1,96 @@
 import streamlit as st
-import json
+import requests
 import pandas as pd
-from urllib.request import Request, urlopen
-from urllib.parse import quote, urlencode
 
-# 1. API 키 설정 (공백 제거 포함)
-CLIENT_ID = st.secrets.get("NAVER_CLIENT_ID", "").strip()
-CLIENT_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "").strip()
+# 1. API 키 설정 (공백 제거 로직 강화)
+try:
+    CLIENT_ID = st.secrets.get("NAVER_CLIENT_ID", "").strip()
+    CLIENT_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "").strip()
+except Exception:
+    st.error("❌ Streamlit Secrets 설정에 오류가 있습니다.")
+    st.stop()
 
 def get_shopping_data(keyword):
-    # API 주소 및 파라미터 설정
-    base_url = "https://openapi.naver.com"
+    # API 주소
+    url = "https://openapi.naver.com"
+    
+    # 파라미터 구성
     params = {
         "query": keyword,
         "display": 50,
         "sort": "asc"
     }
     
-    # 주소 조립 (URL 인코딩 자동 처리)
-    query_string = urlencode(params)
-    full_url = f"{base_url}?{query_string}"
-    
-    # 요청 헤더 구성
-    request = Request(full_url)
-    request.add_header("X-Naver-Client-Id", CLIENT_ID)
-    request.add_header("X-Naver-Client-Secret", CLIENT_SECRET)
-    request.add_header("User-Agent", "Mozilla/5.0")
+    # ⚠️ 핵심: 네이버 차단을 피하기 위한 '브라우저 위장' 헤더 설정
+    headers = {
+        "X-Naver-Client-Id": CLIENT_ID,
+        "X-Naver-Client-Secret": CLIENT_SECRET,
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Origin": "https://share.streamlit.io",
+        "Referer": "https://share.streamlit.io"
+    }
     
     try:
-        # urllib을 이용한 직접 호출 (requests 라이브러리 미사용)
-        with urlopen(request, timeout=10) as response:
-            res_code = response.getcode()
-            if res_code == 200:
-                response_body = response.read().decode('utf-8')
-                return json.loads(response_body).get('items', [])
-            else:
-                st.error(f"❌ 서버 응답 에러: {res_code}")
-                return []
+        # 요청 보내기
+        res = requests.get(url, headers=headers, params=params, timeout=15)
+        
+        # 성공 시 데이터 반환
+        if res.status_code == 200:
+            return res.json().get('items', [])
+        else:
+            # ⚠️ 에러 발생 시 HTML 코드가 아닌 '진짜 이유'를 텍스트로만 추출하여 출력
+            st.error(f"❌ 네이버 응답 에러 (코드: {res.status_code})")
+            # 에러 메시지가 HTML인 경우 앞부분만 출력하여 원인 파악
+            error_msg = res.text[:500]
+            st.code(error_msg, language="html")
+            return []
+            
     except Exception as e:
-        # 상세 에러 메시지 출력
-        st.error(f"⚠️ 연결 오류 상세: {str(e)}")
-        st.info("팁: 네이버 개발자 센터에서 '검색' API 권한이 추가되었는지 다시 확인해 보세요.")
+        st.error(f"⚠️ 시스템 연결 오류: {str(e)}")
         return []
 
-# --- 사이드바 GUI 구성 ---
+# --- GUI 구성 (사이드바 형태) ---
 st.set_page_config(page_title="최저가 검색기", layout="wide")
-st.title("🔍 네이버 쇼핑 실시간 최저가 검색기")
+st.title("🔍 실시간 네이버 쇼핑 최저가 검색기")
 
 if not CLIENT_ID or not CLIENT_SECRET:
-    st.error("⚠️ Streamlit Secrets에 API 키가 설정되지 않았습니다.")
+    st.warning("⚠️ Streamlit Secrets에 API 키를 먼저 입력해 주세요.")
     st.stop()
 
 with st.sidebar:
     st.header("🛒 검색 필터")
-    search_query = st.text_input("상품명을 입력하세요", value="모션데스크 1800")
-    max_price = st.number_input("최대 예산 (원)", min_value=0, value=1500000, step=10000)
+    query = st.text_input("상품명을 입력하세요", value="모션데스크 1800")
+    price_limit = st.number_input("최대 예산 (원)", min_value=0, value=1500000, step=10000)
     search_button = st.button("최저가 검색 시작")
 
-if search_button and search_query:
-    with st.spinner('데이터를 불러오는 중...'):
-        items = get_shopping_data(search_query)
-        
+if search_button and query:
+    with st.spinner('데이터를 분석 중입니다...'):
+        items = get_shopping_data(query)
         if items:
-            processed_data = []
-            for item in items:
+            data = []
+            for i in items:
                 try:
-                    lprice = int(item['lprice'])
-                    if lprice <= max_price:
-                        title = item['title'].replace("<b>", "").replace("</b>", "")
-                        processed_data.append({
+                    price = int(i['lprice'])
+                    if price <= price_limit:
+                        title = i['title'].replace("<b>", "").replace("</b>", "")
+                        data.append({
                             "상품명": title,
-                            "최저가(원)": lprice,
-                            "판매처": item['mallName'],
-                            "링크": item['link']
+                            "최저가(원)": price,
+                            "판매처": i['mallName'],
+                            "링크": i['link']
                         })
                 except: continue
             
-            if processed_data:
-                df = pd.DataFrame(processed_data)
-                st.success(f"검색 성공! 총 {len(df)}건을 찾았습니다.")
+            if data:
+                st.success(f"✅ 총 {len(data)}건의 상품을 찾았습니다!")
                 st.dataframe(
-                    df, 
+                    pd.DataFrame(data), 
                     column_config={"링크": st.column_config.LinkColumn("구매 링크")},
                     hide_index=True,
                     use_container_width=True
                 )
             else:
-                st.warning("예산 범위 내에 상품이 없습니다.")
+                st.warning("⚠️ 설정한 예산 범위 내에 상품이 없습니다.")
         else:
-            st.info("검색 결과가 없거나 API 권한 문제입니다.")
+            st.info("💡 검색 결과가 없거나 API 권한 설정 문제입니다.")
