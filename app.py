@@ -16,10 +16,16 @@ def get_shopping_data(keyword):
     
     try:
         res = requests.get(url, headers=headers, params=params, timeout=10)
-        if res.status_code == 200:
+          if res.status_code == 200:
             return res.json().get('items', [])
-        return []
-    except:
+        else:
+            st.error(f"❌ 네이버 에러 코드: {res.status_code}")
+            st.write(f"🔍 상세 원인: {res.text}") 
+            return []
+        # --- 여기까지 수정 ---
+            
+    except Exception as e:
+        st.error(f"⚠️ 시스템 오류: {e}")
         return []
 
 # 2. 사용자가 요청한 왼쪽 사이드바 GUI 구성
