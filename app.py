@@ -11,15 +11,14 @@ except Exception:
     st.stop()
 
 def get_shopping_data(keyword):
-    # API 주소
-    url = "https://openapi.naver.com"
+    url = f"https://openapi.naver.com{keyword}"
+    headers = {"X-Naver-Client-Id": CLIENT_ID, "X-Naver-Client-Secret": CLIENT_SECRET}
+    res = requests.get(url, headers=headers)
     
-    # 파라미터 구성
-    params = {
-        "query": keyword,
-        "display": 50,
-        "sort": "asc"
-    }
+    # 여기서 에러 원인을 강제로 화면에 뿌립니다.
+    if res.status_code != 200:
+        st.error(f"코드: {res.status_code} / 이유: {res.text}")
+    return res.json().get('items', []) if res.status_code == 200 else []
     
     # ⚠️ 핵심: 네이버 차단을 피하기 위한 '브라우저 위장' 헤더 설정
     headers = {
