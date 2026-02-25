@@ -2,59 +2,46 @@ import streamlit as st
 import requests
 import pandas as pd
 
-# 1. API 키 설정 (공백 제거 로직 강화)
-try:
-    CLIENT_ID = st.secrets.get("NAVER_CLIENT_ID", "").strip()
-    CLIENT_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "").strip()
-except Exception:
-    st.error("❌ Streamlit Secrets 설정에 오류가 있습니다.")
-    st.stop()
+# 1. API 키 설정 (공백 제거 포함)
+CLIENT_ID = st.secrets.get("NAVER_CLIENT_ID", "").strip()
+CLIENT_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "").strip()
 
 def get_shopping_data(keyword):
-    url = f"https://openapi.naver.com{keyword}"
-    headers = {"X-Naver-Client-Id": CLIENT_ID, "X-Naver-Client-Secret": CLIENT_SECRET}
-    res = requests.get(url, headers=headers)
+    # API 주소 (변수 없이 고정)
+    url = "https://openapi.naver.com"
     
-    # 여기서 에러 원인을 강제로 화면에 뿌립니다.
-    if res.status_code != 200:
-        st.error(f"코드: {res.status_code} / 이유: {res.text}")
-    return res.json().get('items', []) if res.status_code == 200 else []
+    # ⚠️ 핵심: 검색어를 주소에 직접 넣지 않고 params로 전달하면 공백 오류가 해결됩니다.
+    params = {
+        "query": keyword,
+        "display": 50,
+        "sort": "asc"
+    }
     
-    # ⚠️ 핵심: 네이버 차단을 피하기 위한 '브라우저 위장' 헤더 설정
     headers = {
         "X-Naver-Client-Id": CLIENT_ID,
-        "X-Naver-Client-Secret": CLIENT_SECRET,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Origin": "https://share.streamlit.io",
-        "Referer": "https://share.streamlit.io"
+        "X-Naver-Client-Secret": CLIENT_SECRET
     }
     
     try:
-        # 요청 보내기
-        res = requests.get(url, headers=headers, params=params, timeout=15)
+        # requests가 주소를 안전하게 자동 조립합니다.
+        res = requests.get(url, headers=headers, params=params, timeout=10)
         
-        # 성공 시 데이터 반환
         if res.status_code == 200:
             return res.json().get('items', [])
         else:
-            # ⚠️ 에러 발생 시 HTML 코드가 아닌 '진짜 이유'를 텍스트로만 추출하여 출력
-            st.error(f"❌ 네이버 응답 에러 (코드: {res.status_code})")
-            # 에러 메시지가 HTML인 경우 앞부분만 출력하여 원인 파악
-            error_msg = res.text[:500]
-            st.code(error_msg, language="html")
+            st.error(f"❌ 네이버 에러 (코드: {res.status_code})")
+            st.write(f"상세 원인: {res.text}")
             return []
-            
     except Exception as e:
-        st.error(f"⚠️ 시스템 연결 오류: {str(e)}")
+        st.error(f"⚠️ 연결 오류: {e}")
         return []
 
-# --- GUI 구성 (사이드바 형태) ---
+# --- GUI 구성 (왼쪽 사이드바) ---
 st.set_page_config(page_title="최저가 검색기", layout="wide")
-st.title("🔍 실시간 네이버 쇼핑 최저가 검색기")
+st.title("🔍 실시간 네이버 쇼핑 최저가 검색")
 
 if not CLIENT_ID or not CLIENT_SECRET:
-    st.warning("⚠️ Streamlit Secrets에 API 키를 먼저 입력해 주세요.")
+    st.error("⚠️ Streamlit Secrets에 API 키를 먼저 설정해 주세요.")
     st.stop()
 
 with st.sidebar:
@@ -64,7 +51,7 @@ with st.sidebar:
     search_button = st.button("최저가 검색 시작")
 
 if search_button and query:
-    with st.spinner('데이터를 분석 중입니다...'):
+    with st.spinner('데이터를 가져오는 중...'):
         items = get_shopping_data(query)
         if items:
             data = []
@@ -75,21 +62,19 @@ if search_button and query:
                         title = i['title'].replace("<b>", "").replace("</b>", "")
                         data.append({
                             "상품명": title,
-                            "최저가(원)": price,
+                            "가격(원)": price,
                             "판매처": i['mallName'],
                             "링크": i['link']
                         })
                 except: continue
             
             if data:
-                st.success(f"✅ 총 {len(data)}건의 상품을 찾았습니다!")
+                st.success(f"✅ 총 {len(data)}건을 찾았습니다.")
                 st.dataframe(
                     pd.DataFrame(data), 
-                    column_config={"링크": st.column_config.LinkColumn("구매 링크")},
+                    column_config={"링크": st.column_config.LinkColumn("구매 바로가기")},
                     hide_index=True,
                     use_container_width=True
                 )
             else:
-                st.warning("⚠️ 설정한 예산 범위 내에 상품이 없습니다.")
-        else:
-            st.info("💡 검색 결과가 없거나 API 권한 설정 문제입니다.")
+                st.warning("⚠️ 예산 내 상품이 없습니다.")
